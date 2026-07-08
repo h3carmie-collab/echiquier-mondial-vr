@@ -13,6 +13,38 @@ const TOUCH_THRESHOLD = 0.14;    // distance doigt-point (m) pour "toucher" un p
 const ROTATE_SENSITIVITY = 3.4;
 
 // ---------------------------------------------------------------
+// Clé API World Monitor (optionnelle — nécessaire pour conflits / CII,
+// pas nécessaire pour les séismes). Stockée en local uniquement.
+// ---------------------------------------------------------------
+const WM_KEY_STORAGE = 'wm_api_key';
+function getWmKey() { return localStorage.getItem(WM_KEY_STORAGE) || ''; }
+function setWmKey(k) { if (k) localStorage.setItem(WM_KEY_STORAGE, k); else localStorage.removeItem(WM_KEY_STORAGE); }
+
+async function wmFetch(url) {
+  const key = getWmKey();
+  const headers = key ? { 'X-WorldMonitor-Key': key } : {};
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+// mapping ISO2 -> nom de pays tel qu'utilisé dans countries-data.js (Natural Earth)
+const ISO2_TO_NAME = {
+  US: 'United States of America', CA: 'Canada', BR: 'Brazil', GB: 'United Kingdom',
+  FR: 'France', DE: 'Germany', IT: 'Italy', ES: 'Spain', PL: 'Poland', NL: 'Netherlands',
+  RU: 'Russia', CN: 'China', IN: 'India', JP: 'Japan', KR: 'South Korea', TW: 'Taiwan',
+  AU: 'Australia', NZ: 'New Zealand', SA: 'Saudi Arabia', NG: 'Nigeria', ZA: 'South Africa',
+  MX: 'Mexico', AR: 'Argentina', TR: 'Turkey', EG: 'Egypt', IR: 'Iran', IQ: 'Iraq',
+  IL: 'Israel', UA: 'Ukraine', PK: 'Pakistan', ID: 'Indonesia', VN: 'Vietnam',
+  PH: 'Philippines', TH: 'Thailand', MY: 'Malaysia', SG: 'Singapore', AE: 'United Arab Emirates',
+  QA: 'Qatar', SY: 'Syria', YE: 'Yemen', ET: 'Ethiopia', KE: 'Kenya', CO: 'Colombia',
+  VE: 'Venezuela', CL: 'Chile', PE: 'Peru', SE: 'Sweden', NO: 'Norway', FI: 'Finland',
+  GR: 'Greece', PT: 'Portugal', BE: 'Belgium', CH: 'Switzerland', AT: 'Austria',
+  RO: 'Romania', KP: 'North Korea', AF: 'Afghanistan', MM: 'Myanmar', SD: 'Sudan',
+  LY: 'Libya', DZ: 'Algeria', MA: 'Morocco', BD: 'Bangladesh',
+};
+
+// ---------------------------------------------------------------
 // Bouton VR custom (fonctionne sans dépendance externe)
 // ---------------------------------------------------------------
 function createVRButton(renderer) {
@@ -350,6 +382,19 @@ function selectMarker(m) {
   if (selected) selected.card.visible = false;
   selected = m;
   if (m) m.card.visible = true;
+  updateWmLink(m);
+}
+
+function updateWmLink(m) {
+  const box = document.getElementById('wm-link-box');
+  if (!box) return;
+  const iso2 = m && m.data && m.data.iso2;
+  if (iso2) {
+    box.innerHTML = `<a href="https://worldmonitor.app/brief/${iso2}" target="_blank" rel="noopener">Voir la fiche complète sur World Monitor →</a>`;
+    box.style.display = 'block';
+  } else {
+    box.style.display = 'none';
+  }
 }
 
 // ---------------------------------------------------------------
@@ -438,6 +483,159 @@ if (liveToggle) {
       liveToggle.textContent = liveGroup.visible ? 'MASQUER LES SÉISMES' : 'AFFICHER LES SÉISMES';
     }
   });
+}
+
+// ---------------------------------------------------------------
+// Couche live : conflits actifs (nécessite probablement une clé API World Monitor)
+// ---------------------------------------------------------------
+const conflictGroup = new THREE.Group();
+globeGroup.add(conflictGroup);
+let conflictLoaded = false;
+
+function makeConflictDot() {
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(0.016, 10, 10),
+    new THREE.MeshBasicMaterial({ color: '#c0392b', transparent: true, opacity: 0.9 })
+  );
+}
+
+async function loadLiveConflicts() {
+  const statusEl = document.getElementById('conflict-status');
+  if (statusEl) statusEl.textContent = 'Chargement des conflits en direct…';
+  try {
+    const json = await wmFetch('https://api.worldmonitor.app/api/conflict/v1/list-acled-events');
+    const list = pick(json, ['events', 'data.events', 'conflicts', 'data', 'items'], []);
+    conflictGroup.clear();
+    let count = 0;
+    for (const ev of Array.isArray(list) ? list : []) {
+      const lat = Number(pick(ev, ['latitude', 'lat']));
+      const lon = Number(pick(ev, ['longitude', 'lon', 'lng']));
+      const title = pick(ev, ['event_type', 'eventType', 'type'], 'Événement');
+      const place = pick(ev, ['location', 'place', 'country'], '');
+      const fatalities = pick(ev, ['fatalities'], null);
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+
+      const dot = makeConflictDot();
+      dot.position.copy(latLonToVector3(lat, lon, RADIUS * 1.01));
+      conflictGroup.add(dot);
+
+      const card = makeCardSprite({
+        cat: 'risk',
+        title: String(title).toUpperCase(),
+        body: place + (fatalities !== null ? ` — ${fatalities} victime(s) rapportée(s)` : '')
+      });
+      card.position.copy(latLonToVector3(lat, lon, RADIUS * 1.45));
+      conflictGroup.add(card);
+
+      dotMeshes.push(dot);
+      markerObjects.push({ data: { title, body: place }, dot, chip: null, card });
+      count++;
+    }
+    if (statusEl) statusEl.textContent = count > 0
+      ? `${count} événements de conflit (World Monitor)`
+      : "Aucune donnée — clé API probablement requise (worldmonitor.app/pro)";
+    conflictLoaded = true;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Échec du chargement — une clé API est probablement requise pour les conflits (worldmonitor.app/pro)";
+    console.warn('Live conflicts fetch failed:', e);
+  }
+}
+
+const conflictToggle = document.getElementById('conflict-toggle');
+if (conflictToggle) {
+  conflictToggle.addEventListener('click', () => {
+    if (!conflictLoaded) {
+      loadLiveConflicts();
+      conflictToggle.textContent = 'MASQUER LES CONFLITS';
+      conflictGroup.visible = true;
+    } else {
+      conflictGroup.visible = !conflictGroup.visible;
+      conflictToggle.textContent = conflictGroup.visible ? 'MASQUER LES CONFLITS' : 'AFFICHER LES CONFLITS';
+    }
+  });
+}
+
+// ---------------------------------------------------------------
+// Score d'instabilité par pays (CII) — recolore le globe directement
+// (nécessite probablement une clé API World Monitor)
+// ---------------------------------------------------------------
+function ciiToColor(score) {
+  // 0 = stable (vert-gris), 100 = instable (rouge), interpolation simple
+  const t = Math.max(0, Math.min(100, score)) / 100;
+  const from = { r: 0xea, g: 0xe5, b: 0xd6 }; // couleur de base des pays
+  const to = { r: 0xc0, g: 0x39, b: 0x2b };   // rouge risque
+  const r = Math.round(from.r + (to.r - from.r) * t);
+  const g = Math.round(from.g + (to.g - from.g) * t);
+  const b = Math.round(from.b + (to.b - from.b) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+async function loadCII() {
+  const statusEl = document.getElementById('cii-status');
+  if (statusEl) statusEl.textContent = 'Chargement du score d\'instabilité…';
+  try {
+    const json = await wmFetch('https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores');
+    const list = pick(json, ['scores', 'data.scores', 'countries', 'data'], []);
+    const byName = {};
+    for (const entry of Array.isArray(list) ? list : []) {
+      const code = pick(entry, ['country_code', 'countryCode', 'iso2', 'code']);
+      const score = Number(pick(entry, ['score', 'cii', 'instability']));
+      const name = ISO2_TO_NAME[String(code).toUpperCase()];
+      if (name && isFinite(score)) byName[name] = score;
+    }
+    if (Object.keys(byName).length === 0) {
+      if (statusEl) statusEl.textContent = "Aucune donnée — clé API probablement requise (worldmonitor.app/pro)";
+      return;
+    }
+    redrawEarthTextureWithCII(byName);
+    if (statusEl) statusEl.textContent = `Score d'instabilité affiché pour ${Object.keys(byName).length} pays`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Échec — une clé API est probablement requise pour le CII (worldmonitor.app/pro)";
+    console.warn('CII fetch failed:', e);
+  }
+}
+
+function redrawEarthTextureWithCII(byName) {
+  const W = 2048, H = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const oceanGrad = ctx.createLinearGradient(0, 0, 0, H);
+  oceanGrad.addColorStop(0, '#173247');
+  oceanGrad.addColorStop(1, '#0d1c29');
+  ctx.fillStyle = oceanGrad;
+  ctx.fillRect(0, 0, W, H);
+  const sx = W / 2000, sy = H / 1000;
+  ctx.save();
+  ctx.scale(sx, sy);
+  for (const c of COUNTRIES) {
+    try {
+      const p = new Path2D(c.d);
+      const score = byName[c.n];
+      ctx.fillStyle = score !== undefined ? ciiToColor(score) : (c.hl ? '#f2ead0' : '#eae5d6');
+      ctx.strokeStyle = c.hl ? '#57492a' : '#3a3428';
+      ctx.lineWidth = c.hl ? 1.4 : 0.9;
+      ctx.fill(p);
+      ctx.stroke(p);
+    } catch (e) { /* ignore */ }
+  }
+  ctx.restore();
+  globeMesh.material.map.dispose();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  globeMesh.material.map = tex;
+  globeMesh.material.needsUpdate = true;
+}
+
+const ciiToggle = document.getElementById('cii-toggle');
+if (ciiToggle) ciiToggle.addEventListener('click', loadCII);
+
+// clé API : pré-remplir + sauvegarder
+const wmKeyInput = document.getElementById('wm-key-input');
+if (wmKeyInput) {
+  wmKeyInput.value = getWmKey();
+  wmKeyInput.addEventListener('change', () => setWmKey(wmKeyInput.value.trim()));
 }
 
 // ---------------------------------------------------------------

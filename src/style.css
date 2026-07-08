@@ -31,12 +31,27 @@ canvas { display: block; }
 #live-panel {
   position: fixed; top: 130px; right: 16px; z-index: 10;
   background: rgba(8,10,14,.72); border: 1px solid #2c313a; border-radius: 8px;
-  padding: 10px 14px; max-width: 220px;
+  padding: 12px 14px; max-width: 230px; display: flex; flex-direction: column; gap: 10px;
 }
-#live-toggle {
+.live-block { display: flex; flex-direction: column; gap: 4px; }
+#live-toggle, #conflict-toggle, #cii-toggle {
   width: 100%; padding: 8px 10px; font: 600 11px system-ui, sans-serif; letter-spacing: .04em;
   background: rgba(224,102,62,0.15); border: 1px solid #e0663e; color: #f4f1e8;
   border-radius: 5px; cursor: pointer;
 }
-#live-status { font-size: 10.5px; color: #9aa3ad; margin-top: 8px; line-height: 1.4; }
-.live-source { font-size: 9.5px; color: #5c626b; margin-top: 6px; }
+#conflict-toggle { background: rgba(192,57,43,0.15); border-color: #c0392b; }
+#cii-toggle { background: rgba(212,160,23,0.15); border-color: #d4a017; }
+.live-status-text { font-size: 10.5px; color: #9aa3ad; line-height: 1.4; }
+.live-source { font-size: 9.5px; color: #5c626b; }
+.wm-key-label { font-size: 10px; color: #8a8f97; }
+#wm-key-input {
+  background: #0d1015; border: 1px solid #2c313a; color: #eae5d6;
+  padding: 6px 8px; border-radius: 4px; font-size: 11px; font-family: monospace;
+}
+#wm-link-box {
+  position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 10;
+  display: none; background: rgba(8,10,14,.85); border: 1px solid #c9a227; border-radius: 6px;
+  padding: 8px 16px;
+}
+#wm-link-box a { color: #c9a227; font-size: 12px; font-weight: 600; text-decoration: none; }
+#wm-link-box a:hover { text-decoration: underline; }

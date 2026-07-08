@@ -15,10 +15,25 @@
 </div>
 <div id="legend"></div>
 <div id="live-panel">
-  <button id="live-toggle">AFFICHER LES SÉISMES EN DIRECT</button>
-  <div id="live-status"></div>
-  <div class="live-source">Source : API publique World Monitor (gratuite, temps réel)</div>
+  <div class="live-block">
+    <button id="live-toggle">AFFICHER LES SÉISMES EN DIRECT</button>
+    <div id="live-status" class="live-status-text"></div>
+  </div>
+  <div class="live-block">
+    <button id="conflict-toggle">AFFICHER LES CONFLITS EN DIRECT</button>
+    <div id="conflict-status" class="live-status-text"></div>
+  </div>
+  <div class="live-block">
+    <button id="cii-toggle">COLORER LE GLOBE (INSTABILITÉ)</button>
+    <div id="cii-status" class="live-status-text"></div>
+  </div>
+  <div class="live-block">
+    <label for="wm-key-input" class="wm-key-label">Clé API World Monitor (optionnelle)</label>
+    <input id="wm-key-input" type="text" placeholder="wm_live_..." />
+  </div>
+  <div class="live-source">Source : API publique World Monitor</div>
 </div>
+<div id="wm-link-box"></div>
 <div id="vrbutton-wrap"></div>
 
 <script type="importmap">

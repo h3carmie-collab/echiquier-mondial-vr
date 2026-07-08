@@ -429,9 +429,7 @@ async function loadLiveEarthquakes() {
   const statusEl = document.getElementById('live-status');
   if (statusEl) statusEl.textContent = 'Chargement des séismes en direct…';
   try {
-    const res = await fetch('https://api.worldmonitor.app/api/seismology/v1/list-earthquakes');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
+    const json = await wmFetch('https://api.worldmonitor.app/api/seismology/v1/list-earthquakes');
     // La forme exacte de la réponse peut varier ; on essaie plusieurs clés plausibles.
     const list = pick(json, ['earthquakes', 'data.earthquakes', 'events', 'data', 'items'], []);
     liveGroup.clear();
@@ -465,7 +463,7 @@ async function loadLiveEarthquakes() {
       : 'Aucune donnée retournée — API peut-être temporairement indisponible';
     liveLoaded = true;
   } catch (e) {
-    if (statusEl) statusEl.textContent = "Impossible de charger les séismes en direct (réseau ou API indisponible)";
+    if (statusEl) statusEl.textContent = "Échec du chargement — une clé API est peut-être requise (worldmonitor.app/pro)";
     console.warn('Live earthquake fetch failed:', e);
   }
 }

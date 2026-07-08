@@ -353,6 +353,94 @@ function selectMarker(m) {
 }
 
 // ---------------------------------------------------------------
+// Couche live : séismes récents via l'API publique World Monitor
+// (aucune clé requise — gratuit) — activable via le bouton en haut à droite
+// ---------------------------------------------------------------
+const liveGroup = new THREE.Group();
+globeGroup.add(liveGroup);
+let liveLoaded = false;
+let liveRefreshTimer = null;
+
+function pick(obj, keys, fallback = undefined) {
+  for (const k of keys) {
+    const parts = k.split('.');
+    let v = obj;
+    for (const p of parts) { v = v && v[p]; }
+    if (v !== undefined && v !== null) return v;
+  }
+  return fallback;
+}
+
+function makeQuakeDot(mag) {
+  const c = '#e0663e';
+  const size = 0.012 + Math.min(Math.max(mag, 0), 8) * 0.0035;
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(size, 10, 10),
+    new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.9 })
+  );
+}
+
+async function loadLiveEarthquakes() {
+  const statusEl = document.getElementById('live-status');
+  if (statusEl) statusEl.textContent = 'Chargement des séismes en direct…';
+  try {
+    const res = await fetch('https://api.worldmonitor.app/api/seismology/v1/list-earthquakes');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    // La forme exacte de la réponse peut varier ; on essaie plusieurs clés plausibles.
+    const list = pick(json, ['earthquakes', 'data.earthquakes', 'events', 'data', 'items'], []);
+    liveGroup.clear();
+    let count = 0;
+    for (const q of Array.isArray(list) ? list : []) {
+      const lat = Number(pick(q, ['latitude', 'lat', 'geometry.coordinates.1', 'coordinates.1']));
+      const lon = Number(pick(q, ['longitude', 'lon', 'lng', 'geometry.coordinates.0', 'coordinates.0']));
+      const mag = Number(pick(q, ['magnitude', 'mag'], 0));
+      const place = pick(q, ['place', 'location', 'title'], 'Localisation inconnue');
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+
+      const pos = latLonToVector3(lat, lon, RADIUS * 1.01);
+      const dot = makeQuakeDot(mag);
+      dot.position.copy(pos);
+      liveGroup.add(dot);
+
+      const card = makeCardSprite({
+        cat: 'risk',
+        title: `SÉISME M${mag.toFixed(1)}`,
+        body: place
+      });
+      card.position.copy(latLonToVector3(lat, lon, RADIUS * 1.45));
+      liveGroup.add(card);
+
+      dotMeshes.push(dot);
+      markerObjects.push({ data: { title: `SÉISME M${mag.toFixed(1)}`, body: place }, dot, chip: null, card });
+      count++;
+    }
+    if (statusEl) statusEl.textContent = count > 0
+      ? `${count} séismes récents (World Monitor, temps réel)`
+      : 'Aucune donnée retournée — API peut-être temporairement indisponible';
+    liveLoaded = true;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Impossible de charger les séismes en direct (réseau ou API indisponible)";
+    console.warn('Live earthquake fetch failed:', e);
+  }
+}
+
+const liveToggle = document.getElementById('live-toggle');
+if (liveToggle) {
+  liveToggle.addEventListener('click', () => {
+    if (!liveLoaded) {
+      loadLiveEarthquakes();
+      liveRefreshTimer = setInterval(loadLiveEarthquakes, 5 * 60 * 1000); // rafraîchi toutes les 5 min
+      liveToggle.textContent = 'MASQUER LES SÉISMES';
+      liveGroup.visible = true;
+    } else {
+      liveGroup.visible = !liveGroup.visible;
+      liveToggle.textContent = liveGroup.visible ? 'MASQUER LES SÉISMES' : 'AFFICHER LES SÉISMES';
+    }
+  });
+}
+
+// ---------------------------------------------------------------
 // Interaction desktop (souris) : clic sur un point = sélection
 // ---------------------------------------------------------------
 const raycaster = new THREE.Raycaster();

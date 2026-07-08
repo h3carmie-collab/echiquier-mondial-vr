@@ -1,0 +1,29 @@
+html, body { margin: 0; padding: 0; overflow: hidden; background: #03050a; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+#info {
+  position: fixed; top: 16px; left: 16px; z-index: 10;
+  color: #eae5d6; max-width: 340px;
+  background: rgba(8,10,14,.72); border: 1px solid #2c313a; border-radius: 8px;
+  padding: 14px 18px; backdrop-filter: blur(6px);
+}
+#info h1 { font-size: 17px; margin: 0 0 4px; letter-spacing: .03em; }
+#info h1 span { color: #c0392b; }
+#info p { font-size: 12px; line-height: 1.5; color: #9aa3ad; margin: 0 0 10px; }
+#info .hint { font-size: 11px; color: #6d7580; border-top: 1px solid #262b33; padding-top: 8px; margin-top: 8px; }
+
+#vrbutton-wrap { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; }
+
+#loading {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: #03050a; color: #c9a227; font-size: 14px; letter-spacing: .1em; z-index: 20;
+}
+
+canvas { display: block; }
+
+#legend {
+  position: fixed; top: 16px; right: 16px; z-index: 10;
+  background: rgba(8,10,14,.72); border: 1px solid #2c313a; border-radius: 8px;
+  padding: 10px 14px; font-size: 11px; color: #c8ccd2; display: flex; flex-direction: column; gap: 6px;
+}
+#legend .item { display: flex; align-items: center; gap: 8px; }
+#legend .dot { width: 9px; height: 9px; border-radius: 50%; }

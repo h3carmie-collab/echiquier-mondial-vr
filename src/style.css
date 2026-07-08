@@ -27,3 +27,16 @@ canvas { display: block; }
 }
 #legend .item { display: flex; align-items: center; gap: 8px; }
 #legend .dot { width: 9px; height: 9px; border-radius: 50%; }
+
+#live-panel {
+  position: fixed; top: 130px; right: 16px; z-index: 10;
+  background: rgba(8,10,14,.72); border: 1px solid #2c313a; border-radius: 8px;
+  padding: 10px 14px; max-width: 220px;
+}
+#live-toggle {
+  width: 100%; padding: 8px 10px; font: 600 11px system-ui, sans-serif; letter-spacing: .04em;
+  background: rgba(224,102,62,0.15); border: 1px solid #e0663e; color: #f4f1e8;
+  border-radius: 5px; cursor: pointer;
+}
+#live-status { font-size: 10.5px; color: #9aa3ad; margin-top: 8px; line-height: 1.4; }
+.live-source { font-size: 9.5px; color: #5c626b; margin-top: 6px; }

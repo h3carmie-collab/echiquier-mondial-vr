@@ -12,23 +12,8 @@ const PINCH_THRESHOLD = 0.028;   // distance pouce-index (m) pour détecter un p
 const TOUCH_THRESHOLD = 0.14;    // distance doigt-point (m) pour "toucher" un pays
 const ROTATE_SENSITIVITY = 3.4;
 
-// ---------------------------------------------------------------
-// Clé API World Monitor (optionnelle — nécessaire pour conflits / CII,
-// pas nécessaire pour les séismes). Stockée en local uniquement.
-// ---------------------------------------------------------------
-const WM_KEY_STORAGE = 'wm_api_key';
-function getWmKey() { return localStorage.getItem(WM_KEY_STORAGE) || ''; }
-function setWmKey(k) { if (k) localStorage.setItem(WM_KEY_STORAGE, k); else localStorage.removeItem(WM_KEY_STORAGE); }
-
-async function wmFetch(url) {
-  const key = getWmKey();
-  const headers = key ? { 'X-WorldMonitor-Key': key } : {};
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
-}
-
-// mapping ISO2 -> nom de pays tel qu'utilisé dans countries-data.js (Natural Earth)
+// (Séismes -> USGS direct, Conflits/tension -> ACLED direct : aucune clé World Monitor nécessaire.)
+// Lien "voir sur World Monitor" reste utile pour approfondir un pays -> table ISO2.
 const ISO2_TO_NAME = {
   US: 'United States of America', CA: 'Canada', BR: 'Brazil', GB: 'United Kingdom',
   FR: 'France', DE: 'Germany', IT: 'Italy', ES: 'Spain', PL: 'Poland', NL: 'Netherlands',
@@ -429,16 +414,20 @@ async function loadLiveEarthquakes() {
   const statusEl = document.getElementById('live-status');
   if (statusEl) statusEl.textContent = 'Chargement des séismes en direct…';
   try {
-    const json = await wmFetch('https://api.worldmonitor.app/api/seismology/v1/list-earthquakes');
-    // La forme exacte de la réponse peut varier ; on essaie plusieurs clés plausibles.
-    const list = pick(json, ['earthquakes', 'data.earthquakes', 'events', 'data', 'items'], []);
+    // USGS : source officielle, gratuite, sans clé, CORS activé.
+    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const list = pick(json, ['features'], []);
     liveGroup.clear();
     let count = 0;
-    for (const q of Array.isArray(list) ? list : []) {
-      const lat = Number(pick(q, ['latitude', 'lat', 'geometry.coordinates.1', 'coordinates.1']));
-      const lon = Number(pick(q, ['longitude', 'lon', 'lng', 'geometry.coordinates.0', 'coordinates.0']));
-      const mag = Number(pick(q, ['magnitude', 'mag'], 0));
-      const place = pick(q, ['place', 'location', 'title'], 'Localisation inconnue');
+    for (const f of Array.isArray(list) ? list : []) {
+      const props = f.properties || {};
+      const coords = (f.geometry && f.geometry.coordinates) || [];
+      const lon = Number(coords[0]);
+      const lat = Number(coords[1]);
+      const mag = Number(props.mag) || 0;
+      const place = props.place || 'Localisation inconnue';
       if (!isFinite(lat) || !isFinite(lon)) continue;
 
       const pos = latLonToVector3(lat, lon, RADIUS * 1.01);
@@ -459,11 +448,11 @@ async function loadLiveEarthquakes() {
       count++;
     }
     if (statusEl) statusEl.textContent = count > 0
-      ? `${count} séismes récents (World Monitor, temps réel)`
-      : 'Aucune donnée retournée — API peut-être temporairement indisponible';
+      ? `${count} séismes M4.5+ des 7 derniers jours (USGS, temps réel)`
+      : 'Aucun séisme M4.5+ cette semaine (rare mais possible)';
     liveLoaded = true;
   } catch (e) {
-    if (statusEl) statusEl.textContent = "Échec du chargement — une clé API est peut-être requise (worldmonitor.app/pro)";
+    if (statusEl) statusEl.textContent = "Échec du chargement (réseau indisponible ou service USGS temporairement hors ligne)";
     console.warn('Live earthquake fetch failed:', e);
   }
 }
@@ -705,12 +694,7 @@ function redrawEarthTextureWithScores(byName) {
 const ciiToggle = document.getElementById('cii-toggle');
 if (ciiToggle) ciiToggle.addEventListener('click', colorGlobeByTension);
 
-// identifiants : pré-remplir + sauvegarder
-const wmKeyInput = document.getElementById('wm-key-input');
-if (wmKeyInput) {
-  wmKeyInput.value = getWmKey();
-  wmKeyInput.addEventListener('change', () => setWmKey(wmKeyInput.value.trim()));
-}
+// identifiants ACLED : pré-remplir + sauvegarder
 const acledKeyInput = document.getElementById('acled-key-input');
 const acledEmailInput = document.getElementById('acled-email-input');
 if (acledKeyInput && acledEmailInput) {

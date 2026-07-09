@@ -20,18 +20,23 @@
     <div id="live-status" class="live-status-text"></div>
   </div>
   <div class="live-block">
-    <button id="conflict-toggle">AFFICHER LES CONFLITS EN DIRECT</button>
+    <button id="conflict-toggle">AFFICHER LES CONFLITS (ACLED)</button>
     <div id="conflict-status" class="live-status-text"></div>
   </div>
   <div class="live-block">
-    <button id="cii-toggle">COLORER LE GLOBE (INSTABILITÉ)</button>
+    <button id="cii-toggle">COLORER LE GLOBE (TENSION CALCULÉE)</button>
     <div id="cii-status" class="live-status-text"></div>
   </div>
   <div class="live-block">
-    <label for="wm-key-input" class="wm-key-label">Clé API World Monitor (optionnelle)</label>
+    <label class="wm-key-label">Identifiants ACLED (gratuit sur acleddata.com)</label>
+    <input id="acled-key-input" type="text" placeholder="Clé d'accès ACLED" />
+    <input id="acled-email-input" type="text" placeholder="Email associé au compte ACLED" />
+  </div>
+  <div class="live-block">
+    <label for="wm-key-input" class="wm-key-label">Clé API World Monitor (optionnelle, séismes)</label>
     <input id="wm-key-input" type="text" placeholder="wm_live_..." />
   </div>
-  <div class="live-source">Source : API publique World Monitor</div>
+  <div class="live-source">Sources : USGS/World Monitor (séismes), ACLED (conflits)</div>
 </div>
 <div id="wm-link-box"></div>
 <div id="vrbutton-wrap"></div>

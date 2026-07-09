@@ -277,12 +277,90 @@ const globeGroup = new THREE.Group();
 scene.add(globeGroup);
 
 document.getElementById('loading').style.display = 'flex';
-const earthTex = buildEarthTexture();
+let stylizedTex = buildEarthTexture();
 const globeMesh = new THREE.Mesh(
   new THREE.SphereGeometry(RADIUS, 96, 96),
-  new THREE.MeshPhongMaterial({ map: earthTex, shininess: 6, specular: 0x0a0a0a })
+  new THREE.MeshPhongMaterial({ map: stylizedTex, shininess: 6, specular: 0x0a0a0a })
 );
 globeGroup.add(globeMesh);
+
+// ---------------------------------------------------------------
+// Vue "réaliste" façon Google Earth : imagerie satellite (Blue Marble),
+// avec relief (bump map) et océans brillants (specular map).
+// ---------------------------------------------------------------
+let realisticLoaded = false;
+let currentView = 'stylized';
+const textureLoader = new THREE.TextureLoader();
+textureLoader.crossOrigin = 'anonymous';
+
+function loadRealisticTextures() {
+  return Promise.all([
+    new Promise((resolve, reject) => textureLoader.load(
+      'https://unpkg.com/three-globe@2.31.0/example/img/earth-blue-marble.jpg',
+      resolve, undefined, reject)),
+    new Promise((resolve) => textureLoader.load(
+      'https://unpkg.com/three-globe@2.31.0/example/img/earth-topology.png',
+      resolve, undefined, () => resolve(null))),
+    new Promise((resolve) => textureLoader.load(
+      'https://unpkg.com/three-globe@2.31.0/example/img/earth-water.png',
+      resolve, undefined, () => resolve(null))),
+  ]);
+}
+
+function setView(mode) {
+  currentView = mode;
+  if (mode === 'stylized') {
+    globeMesh.material.map = stylizedTex;
+    globeMesh.material.bumpMap = null;
+    globeMesh.material.specularMap = null;
+    globeMesh.material.bumpScale = 0;
+    globeMesh.material.needsUpdate = true;
+    if (viewToggle) viewToggle.textContent = 'VUE RÉALISTE (SATELLITE)';
+  } else {
+    if (viewToggle) viewToggle.textContent = 'VUE DONNÉES (FRONTIÈRES)';
+    if (realisticLoaded) {
+      applyRealisticMaterial();
+    } else {
+      if (viewToggle) viewToggle.textContent = 'CHARGEMENT…';
+      loadRealisticTextures().then(([map, bump, water]) => {
+        globeMesh.userData.realisticMap = map;
+        globeMesh.userData.realisticBump = bump;
+        globeMesh.userData.realisticWater = water;
+        realisticLoaded = true;
+        applyRealisticMaterial();
+        if (viewToggle) viewToggle.textContent = 'VUE DONNÉES (FRONTIÈRES)';
+      }).catch(() => {
+        if (viewToggle) viewToggle.textContent = 'ÉCHEC — VUE DONNÉES';
+        currentView = 'stylized';
+        setTimeout(() => setView('stylized'), 1500);
+      });
+    }
+  }
+}
+
+function applyRealisticMaterial() {
+  const map = globeMesh.userData.realisticMap;
+  if (!map) return;
+  map.colorSpace = THREE.SRGBColorSpace;
+  globeMesh.material.map = map;
+  if (globeMesh.userData.realisticBump) {
+    globeMesh.material.bumpMap = globeMesh.userData.realisticBump;
+    globeMesh.material.bumpScale = 0.01;
+  }
+  if (globeMesh.userData.realisticWater) {
+    globeMesh.material.specularMap = globeMesh.userData.realisticWater;
+    globeMesh.material.specular = new THREE.Color(0x333333);
+    globeMesh.material.shininess = 12;
+  }
+  globeMesh.material.needsUpdate = true;
+}
+
+const viewToggle = document.getElementById('view-toggle');
+if (viewToggle) {
+  viewToggle.addEventListener('click', () => setView(currentView === 'stylized' ? 'realistic' : 'stylized'));
+}
+// vue réaliste par défaut au chargement
+setView('realistic');
 
 const atmoMat = new THREE.ShaderMaterial({
   transparent: true,
@@ -683,12 +761,13 @@ function redrawEarthTextureWithScores(byName) {
     } catch (e) { /* ignore */ }
   }
   ctx.restore();
-  globeMesh.material.map.dispose();
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
-  globeMesh.material.map = tex;
-  globeMesh.material.needsUpdate = true;
+  const oldTex = stylizedTex;
+  stylizedTex = tex;
+  setView('stylized');
+  oldTex.dispose();
 }
 
 const ciiToggle = document.getElementById('cii-toggle');

@@ -484,11 +484,56 @@ if (liveToggle) {
 }
 
 // ---------------------------------------------------------------
-// Couche live : conflits actifs (nécessite probablement une clé API World Monitor)
+// Couche live : conflits actifs — directement via l'API ACLED
+// (inscription gratuite requise sur acleddata.com, clé + email)
 // ---------------------------------------------------------------
+const ACLED_KEY_STORAGE = 'acled_api_key';
+const ACLED_EMAIL_STORAGE = 'acled_email';
+function getAcledCreds() {
+  return {
+    key: localStorage.getItem(ACLED_KEY_STORAGE) || '',
+    email: localStorage.getItem(ACLED_EMAIL_STORAGE) || ''
+  };
+}
+function setAcledCreds(key, email) {
+  if (key) localStorage.setItem(ACLED_KEY_STORAGE, key); else localStorage.removeItem(ACLED_KEY_STORAGE);
+  if (email) localStorage.setItem(ACLED_EMAIL_STORAGE, email); else localStorage.removeItem(ACLED_EMAIL_STORAGE);
+}
+
+// alias entre les noms de pays ACLED et les noms Natural Earth utilisés dans countries-data.js
+const NAME_ALIASES = {
+  'united states': 'United States of America',
+  'democratic republic of congo': 'Dem. Rep. Congo',
+  'republic of congo': 'Congo',
+  'ivory coast': "Côte d'Ivoire",
+  "cote d'ivoire": "Côte d'Ivoire",
+  'myanmar': 'Myanmar',
+  'north macedonia': 'North Macedonia',
+  'eswatini': 'eSwatini',
+  'south korea': 'South Korea',
+  'north korea': 'North Korea',
+  'russian federation': 'Russia',
+  'syrian arab republic': 'Syria',
+  'viet nam': 'Vietnam',
+  'united kingdom': 'United Kingdom',
+  'czech republic': 'Czechia',
+  'palestine': 'Palestine',
+};
+function resolveCountryName(raw) {
+  if (!raw) return null;
+  const found = COUNTRIES.find(c => c.n === raw);
+  if (found) return found.n;
+  const alias = NAME_ALIASES[String(raw).toLowerCase()];
+  if (alias) return alias;
+  const lower = String(raw).toLowerCase();
+  const fuzzy = COUNTRIES.find(c => c.n.toLowerCase() === lower);
+  return fuzzy ? fuzzy.n : null;
+}
+
 const conflictGroup = new THREE.Group();
 globeGroup.add(conflictGroup);
 let conflictLoaded = false;
+let lastConflictAggregates = null; // { countryName: { fatalities, count } }
 
 function makeConflictDot() {
   return new THREE.Mesh(
@@ -499,18 +544,32 @@ function makeConflictDot() {
 
 async function loadLiveConflicts() {
   const statusEl = document.getElementById('conflict-status');
+  const { key, email } = getAcledCreds();
+  if (!key || !email) {
+    if (statusEl) statusEl.textContent = "Renseigne ta clé + email ACLED ci-dessous d'abord (inscription gratuite sur acleddata.com)";
+    return null;
+  }
   if (statusEl) statusEl.textContent = 'Chargement des conflits en direct…';
   try {
-    const json = await wmFetch('https://api.worldmonitor.app/api/conflict/v1/list-acled-events');
-    const list = pick(json, ['events', 'data.events', 'conflicts', 'data', 'items'], []);
+    const end = new Date();
+    const start = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    const url = `https://acleddata.com/api/acled/read?key=${encodeURIComponent(key)}&email=${encodeURIComponent(email)}`
+      + `&event_date=${fmt(start)}|${fmt(end)}&event_date_where=BETWEEN&limit=1000`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const list = pick(json, ['data', 'events', 'items'], []);
     conflictGroup.clear();
     let count = 0;
+    const aggregates = {};
     for (const ev of Array.isArray(list) ? list : []) {
       const lat = Number(pick(ev, ['latitude', 'lat']));
       const lon = Number(pick(ev, ['longitude', 'lon', 'lng']));
-      const title = pick(ev, ['event_type', 'eventType', 'type'], 'Événement');
-      const place = pick(ev, ['location', 'place', 'country'], '');
-      const fatalities = pick(ev, ['fatalities'], null);
+      const evType = pick(ev, ['event_type', 'eventType'], 'Événement');
+      const countryRaw = pick(ev, ['country'], '');
+      const fatalities = Number(pick(ev, ['fatalities'], 0)) || 0;
+      const notes = pick(ev, ['notes'], '');
       if (!isFinite(lat) || !isFinite(lon)) continue;
 
       const dot = makeConflictDot();
@@ -519,31 +578,41 @@ async function loadLiveConflicts() {
 
       const card = makeCardSprite({
         cat: 'risk',
-        title: String(title).toUpperCase(),
-        body: place + (fatalities !== null ? ` — ${fatalities} victime(s) rapportée(s)` : '')
+        title: String(evType).toUpperCase(),
+        body: (countryRaw ? countryRaw + ' — ' : '') + (fatalities > 0 ? `${fatalities} victime(s)` : (notes ? notes.slice(0, 80) : ''))
       });
       card.position.copy(latLonToVector3(lat, lon, RADIUS * 1.45));
       conflictGroup.add(card);
 
       dotMeshes.push(dot);
-      markerObjects.push({ data: { title, body: place }, dot, chip: null, card });
+      markerObjects.push({ data: { title: evType, body: countryRaw }, dot, chip: null, card });
       count++;
+
+      const resolvedName = resolveCountryName(countryRaw);
+      if (resolvedName) {
+        if (!aggregates[resolvedName]) aggregates[resolvedName] = { fatalities: 0, count: 0 };
+        aggregates[resolvedName].fatalities += fatalities;
+        aggregates[resolvedName].count += 1;
+      }
     }
+    lastConflictAggregates = aggregates;
     if (statusEl) statusEl.textContent = count > 0
-      ? `${count} événements de conflit (World Monitor)`
-      : "Aucune donnée — clé API probablement requise (worldmonitor.app/pro)";
+      ? `${count} événements (7 derniers jours, ACLED)`
+      : "Aucun événement retourné (vérifie ta clé/email, ou aucun conflit récent)";
     conflictLoaded = true;
+    return aggregates;
   } catch (e) {
-    if (statusEl) statusEl.textContent = "Échec du chargement — une clé API est probablement requise pour les conflits (worldmonitor.app/pro)";
+    if (statusEl) statusEl.textContent = "Échec du chargement — vérifie ta clé/email, ou l'API bloque les requêtes navigateur (CORS). Dis-le moi si ça persiste.";
     console.warn('Live conflicts fetch failed:', e);
+    return null;
   }
 }
 
 const conflictToggle = document.getElementById('conflict-toggle');
 if (conflictToggle) {
-  conflictToggle.addEventListener('click', () => {
+  conflictToggle.addEventListener('click', async () => {
     if (!conflictLoaded) {
-      loadLiveConflicts();
+      await loadLiveConflicts();
       conflictToggle.textContent = 'MASQUER LES CONFLITS';
       conflictGroup.visible = true;
     } else {
@@ -554,46 +623,53 @@ if (conflictToggle) {
 }
 
 // ---------------------------------------------------------------
-// Score d'instabilité par pays (CII) — recolore le globe directement
-// (nécessite probablement une clé API World Monitor)
+// Indice de tension "maison" — calculé à partir des conflits ACLED
+// (pas le vrai CII propriétaire de World Monitor, mais gratuit et transparent)
 // ---------------------------------------------------------------
-function ciiToColor(score) {
-  // 0 = stable (vert-gris), 100 = instable (rouge), interpolation simple
+function tensionToColor(score) {
   const t = Math.max(0, Math.min(100, score)) / 100;
-  const from = { r: 0xea, g: 0xe5, b: 0xd6 }; // couleur de base des pays
-  const to = { r: 0xc0, g: 0x39, b: 0x2b };   // rouge risque
+  const from = { r: 0xea, g: 0xe5, b: 0xd6 };
+  const to = { r: 0xc0, g: 0x39, b: 0x2b };
   const r = Math.round(from.r + (to.r - from.r) * t);
   const g = Math.round(from.g + (to.g - from.g) * t);
   const b = Math.round(from.b + (to.b - from.b) * t);
   return `rgb(${r},${g},${b})`;
 }
 
-async function loadCII() {
-  const statusEl = document.getElementById('cii-status');
-  if (statusEl) statusEl.textContent = 'Chargement du score d\'instabilité…';
-  try {
-    const json = await wmFetch('https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores');
-    const list = pick(json, ['scores', 'data.scores', 'countries', 'data'], []);
-    const byName = {};
-    for (const entry of Array.isArray(list) ? list : []) {
-      const code = pick(entry, ['country_code', 'countryCode', 'iso2', 'code']);
-      const score = Number(pick(entry, ['score', 'cii', 'instability']));
-      const name = ISO2_TO_NAME[String(code).toUpperCase()];
-      if (name && isFinite(score)) byName[name] = score;
-    }
-    if (Object.keys(byName).length === 0) {
-      if (statusEl) statusEl.textContent = "Aucune donnée — clé API probablement requise (worldmonitor.app/pro)";
-      return;
-    }
-    redrawEarthTextureWithCII(byName);
-    if (statusEl) statusEl.textContent = `Score d'instabilité affiché pour ${Object.keys(byName).length} pays`;
-  } catch (e) {
-    if (statusEl) statusEl.textContent = "Échec — une clé API est probablement requise pour le CII (worldmonitor.app/pro)";
-    console.warn('CII fetch failed:', e);
+function computeTensionScores(aggregates) {
+  const scores = {};
+  let max = 1;
+  for (const name in aggregates) {
+    const a = aggregates[name];
+    const raw = a.fatalities * 3 + a.count; // pondération simple : morts comptent plus que le nombre d'événements
+    scores[name] = raw;
+    if (raw > max) max = raw;
   }
+  for (const name in scores) {
+    scores[name] = Math.round((scores[name] / max) * 100);
+  }
+  return scores;
 }
 
-function redrawEarthTextureWithCII(byName) {
+async function colorGlobeByTension() {
+  const statusEl = document.getElementById('cii-status');
+  let aggregates = lastConflictAggregates;
+  if (!aggregates) {
+    if (statusEl) statusEl.textContent = 'Chargement des conflits nécessaire au calcul…';
+    aggregates = await loadLiveConflicts();
+    conflictToggle && (conflictToggle.textContent = 'MASQUER LES CONFLITS');
+    if (conflictGroup) conflictGroup.visible = true;
+  }
+  if (!aggregates || Object.keys(aggregates).length === 0) {
+    if (statusEl) statusEl.textContent = "Impossible — aucune donnée de conflit chargée (vérifie ta clé ACLED)";
+    return;
+  }
+  const scores = computeTensionScores(aggregates);
+  redrawEarthTextureWithScores(scores);
+  if (statusEl) statusEl.textContent = `Tension calculée pour ${Object.keys(scores).length} pays (basé sur ${Object.values(aggregates).reduce((s, a) => s + a.count, 0)} événements)`;
+}
+
+function redrawEarthTextureWithScores(byName) {
   const W = 2048, H = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
@@ -610,7 +686,7 @@ function redrawEarthTextureWithCII(byName) {
     try {
       const p = new Path2D(c.d);
       const score = byName[c.n];
-      ctx.fillStyle = score !== undefined ? ciiToColor(score) : (c.hl ? '#f2ead0' : '#eae5d6');
+      ctx.fillStyle = score !== undefined ? tensionToColor(score) : (c.hl ? '#f2ead0' : '#eae5d6');
       ctx.strokeStyle = c.hl ? '#57492a' : '#3a3428';
       ctx.lineWidth = c.hl ? 1.4 : 0.9;
       ctx.fill(p);
@@ -627,13 +703,23 @@ function redrawEarthTextureWithCII(byName) {
 }
 
 const ciiToggle = document.getElementById('cii-toggle');
-if (ciiToggle) ciiToggle.addEventListener('click', loadCII);
+if (ciiToggle) ciiToggle.addEventListener('click', colorGlobeByTension);
 
-// clé API : pré-remplir + sauvegarder
+// identifiants : pré-remplir + sauvegarder
 const wmKeyInput = document.getElementById('wm-key-input');
 if (wmKeyInput) {
   wmKeyInput.value = getWmKey();
   wmKeyInput.addEventListener('change', () => setWmKey(wmKeyInput.value.trim()));
+}
+const acledKeyInput = document.getElementById('acled-key-input');
+const acledEmailInput = document.getElementById('acled-email-input');
+if (acledKeyInput && acledEmailInput) {
+  const creds = getAcledCreds();
+  acledKeyInput.value = creds.key;
+  acledEmailInput.value = creds.email;
+  const saveAcled = () => setAcledCreds(acledKeyInput.value.trim(), acledEmailInput.value.trim());
+  acledKeyInput.addEventListener('change', saveAcled);
+  acledEmailInput.addEventListener('change', saveAcled);
 }
 
 // ---------------------------------------------------------------
